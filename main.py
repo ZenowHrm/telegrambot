@@ -1,18 +1,23 @@
+import os
 import re
 import urllib.parse
-from bs4 import BeautifulSoup
 import requests
 import telebot
 
-# 1. Coloca aquí el token que te dio @BotFather
-TOKEN = "8931648780:AAHeLvlk6HJQA2OkXFeZxSISKDv4fH_FSZ0"
+# 1. Configuración del Token (lo lee de Railway o usa el string de respaldo)
+TOKEN = os.getenv("TELEGRAM_TOKEN")
 bot = telebot.TeleBot(TOKEN)
 
-# Dominio activo actual de Anna's Archive (puedes cambiarlo si migran a .se, .li, etc.)
-BASE_URL = "https://annas-archive.gl"
+# Dominio activo actual de Anna's Archive
+BASE_URL = "https://annas-archive.pk"
+
+# 2. Configuración de exclusividad (extraído de tu enlace)
+GRUPO_PERMITIDO = "LosConsejosDeHomeroGrupo"
+TEMA_PERMITIDO = 65512
 
 
 def buscar_annas_archive(query, max_resultados=3):
+    """Busca en Anna's Archive y devuelve una lista con los enlaces MD5."""
     query_param = urllib.parse.quote(query)
     url_busqueda = f"{BASE_URL}/search?q={query_param}"
 
@@ -24,14 +29,17 @@ def buscar_annas_archive(query, max_resultados=3):
     }
 
     try:
-        # Petición directa SIN parámetro proxies
         response = requests.get(url_busqueda, headers=headers, timeout=15)
         if response.status_code != 200:
             return None
 
+        # Buscamos todas las coincidencias /md5/ en el HTML
         md5_matches = re.findall(r"/md5/([a-fA-F0-9]{32})", response.text)
+
+        # Eliminamos duplicados manteniendo el orden de relevancia
         md5_unicos = list(dict.fromkeys(md5_matches))
 
+        # Construimos los enlaces web directos
         enlaces = [
             f"{BASE_URL}/md5/{md5}" for md5 in md5_unicos[:max_resultados]
         ]
@@ -42,33 +50,34 @@ def buscar_annas_archive(query, max_resultados=3):
         return None
 
 
-@bot.message_handler(commands=["start", "help"])
-def send_welcome(message):
-    texto = (
-        "¡Hola! 📚 Puedes buscar libros escribiendo:\n\n"
-        "`/libro <título y/o autor>`\n\n"
-        "**Ejemplo:**\n"
-        "`/libro El Principito Antoine de Saint-Exupéry`"
-    )
-    bot.reply_to(message, texto, parse_mode="Markdown")
-
-
 @bot.message_handler(commands=["libro"])
 def comando_libro(message):
-    # Extraemos el texto que viene después de "/libro "
+    # --- FILTRO DE SEGURIDAD ---
+    # Comprobamos que sea el grupo correcto y el tema correcto (ID 65512)
+    chat_username = message.chat.username or ""
+    if (
+        chat_username.lower() != GRUPO_PERMITIDO.lower()
+        or message.message_thread_id != TEMA_PERMITIDO
+    ):
+        return  # Ignora en silencio si no es en el lugar autorizado
+    # ---------------------------
+
+    # Extraemos el texto que viene después de "/libro"
     texto_usuario = message.text.split(maxsplit=1)
 
     if len(texto_usuario) < 2:
+        # Responde citando el mensaje del usuario si faltan datos
         bot.reply_to(
             message,
-            "⚠️ Debes indicar un título o autor.\nEjemplo: `/libro El Principito`",
+            "⚠️ Debes indicar un título o autor.\nEjemplo: `/libro El"
+            " Principito`",
             parse_mode="Markdown",
         )
         return
 
     query = texto_usuario[1]
 
-    # Mensaje temporal de espera
+    # Mensaje temporal de espera (siempre citando el mensaje original)
     msg_espera = bot.reply_to(
         message, "🔍 *Buscando en Anna's Archive...*", parse_mode="Markdown"
     )
@@ -76,6 +85,7 @@ def comando_libro(message):
     enlaces = buscar_annas_archive(query)
 
     if not enlaces:
+        # Usamos chat_id y message_id explícitos para editar el mensaje exacto
         bot.edit_message_text(
             "❌ No se encontraron resultados o el servidor tardó en responder.",
             chat_id=message.chat.id,
@@ -83,7 +93,7 @@ def comando_libro(message):
         )
         return
 
-    # Formateamos la respuesta con los mejores enlaces
+    # Formateamos la respuesta final
     respuesta = f"📖 **Resultados para:** _{query}_\n\n"
     for i, link in enumerate(enlaces, 1):
         respuesta += f"**Opción {i}:**\n🔗 {link}\n\n"
@@ -93,17 +103,16 @@ def comando_libro(message):
         " descarga gratuita._"
     )
 
-    # Reemplazamos el mensaje de "Buscando..." por la respuesta final
+    # Editamos el mensaje temporal usando chat_id y message_id explícitos
     bot.edit_message_text(
         respuesta,
         chat_id=message.chat.id,
         message_id=msg_espera.message_id,
         parse_mode="Markdown",
-        disable_web_page_preview=True,  # Evita que se llene de vistas previas gigantes
+        disable_web_page_preview=True,
     )
 
 
 if __name__ == "__main__":
     print("🤖 Bot iniciado y escuchando comandos...")
-    # interval=3 evita saturación y non_stop=True hace que no se detenga si hay un corte de red leve
     bot.infinity_polling(interval=1, timeout=20)
