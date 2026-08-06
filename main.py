@@ -71,41 +71,43 @@ def generar_texto_pagina(query, enlaces, pagina_actual):
 
 
 def generar_teclado_paginacion(search_id, pagina_actual, total_paginas):
-    """Crea los botones Inline para avanzar o retroceder página."""
+    """Crea los botones Inline en 2 filas: arriba la página, abajo la navegación."""
     # Si solo hay 1 página, no necesitamos botones
     if total_paginas <= 1:
         return None
 
     markup = types.InlineKeyboardMarkup()
-    botones = []
 
-    # Indicador de página en el centro (botón decorativo)
-    botones.append(
-        types.InlineKeyboardMarkup(
-            f"{pagina_actual + 1}/{total_paginas}",
-            callback_data="ignorar",  # No hace nada si lo presionan
-        )
+    # --- FILA 1 (ARRIBA): Botón ancho con el número de página ---
+    boton_pagina = types.InlineKeyboardButton(
+        f"📄 {pagina_actual + 1} / {total_paginas}",
+        web_app=types.WebAppInfo(url="https://portfoliosantimy.up.railway.app"),
     )
+    markup.row(boton_pagina)  # Al estar solo en su fila, ocupa todo el ancho
 
-    # Botón Anterior (solo si no estamos en la primera página)
+    # --- FILA 2 (ABAJO): Botón de Anterior y/o Siguiente ---
+    botones_nav = []
+
     if pagina_actual > 0:
-        botones.append(
+        botones_nav.append(
             types.InlineKeyboardButton(
                 "⬅️ Anterior",
                 callback_data=f"pag_{search_id}_{pagina_actual - 1}",
             )
         )
 
-    # Botón Siguiente (solo si no estamos en la última página)
     if pagina_actual < total_paginas - 1:
-        botones.append(
+        botones_nav.append(
             types.InlineKeyboardButton(
                 "Siguiente ➡️",
                 callback_data=f"pag_{search_id}_{pagina_actual + 1}",
             )
         )
 
-    markup.row(*botones)
+    # Si hay botones de navegación disponibles, los agregamos en una segunda fila
+    if botones_nav:
+        markup.row(*botones_nav)
+
     return markup
 
 
