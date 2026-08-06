@@ -102,7 +102,7 @@ def generar_teclado_paginacion(search_id, pagina_actual, total_paginas):
     # --- FILA 1 (ARRIBA): Botón ancho con el número de página ---
     boton_pagina = types.InlineKeyboardButton(
         text=f"📄 {pagina_actual + 1} / {total_paginas}",
-        web_app=types.WebAppInfo(url="https://portfoliosantimy.up.railway.app"),
+        url="https://portfoliosantimy.up.railway.app",
     )
     markup.row(boton_pagina)
 
