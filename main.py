@@ -58,14 +58,13 @@ def generar_texto_pagina(query, enlaces, pagina_actual):
     fin = inicio + 3
     enlaces_pagina = enlaces[inicio:fin]
 
-    texto = f"📖 **Resultados para:** _{query}_\n"
+    texto = f"📖 **Resultados para:** _{query}_\n\n"
     texto += (
-        f"📄 **Página {pagina_actual + 1} de {total_paginas}** *(Total:"
-        f" {len(enlaces)} libros)*\n\n"
+        f"📄 **Página {pagina_actual + 1} de {total_paginas}**\n\n"
     )
 
     for i, link in enumerate(enlaces_pagina, start=inicio + 1):
-        texto += f"**Opción {i}:**\n🔗 {link}\n\n"
+        texto += f"**Opción {i}:**\n🔗 {link}\n"
 
     texto += "💡 _Abre cualquier enlace en tu navegador para descargar gratis._"
     return texto
@@ -80,6 +79,14 @@ def generar_teclado_paginacion(search_id, pagina_actual, total_paginas):
     markup = types.InlineKeyboardMarkup()
     botones = []
 
+    # Indicador de página en el centro (botón decorativo)
+    botones.append(
+        types.InlineKeyboardMarkup(
+            f"{pagina_actual + 1}/{total_paginas}",
+            callback_data="ignorar",  # No hace nada si lo presionan
+        )
+    )
+
     # Botón Anterior (solo si no estamos en la primera página)
     if pagina_actual > 0:
         botones.append(
@@ -88,14 +95,6 @@ def generar_teclado_paginacion(search_id, pagina_actual, total_paginas):
                 callback_data=f"pag_{search_id}_{pagina_actual - 1}",
             )
         )
-
-    # Indicador de página en el centro (botón decorativo)
-    botones.append(
-        types.InlineKeyboardButton(
-            f"{pagina_actual + 1}/{total_paginas}",
-            callback_data="ignorar",  # No hace nada si lo presionan
-        )
-    )
 
     # Botón Siguiente (solo si no estamos en la última página)
     if pagina_actual < total_paginas - 1:
