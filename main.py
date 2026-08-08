@@ -1,21 +1,27 @@
 import math
 import os
 import re
-import sys
 import urllib.parse
 import uuid
 import cloudscraper
 import telebot
 from telebot import types
-from http.server import BaseHTTPRequestHandler, HTTPServer
-import threading
+from fastapi import FastAPI, Request, Response
+import uvicorn
 
+# 1. Configuración de Variables de Entorno y Token
+TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-# 1. Configuración del Token
-TOKEN = os.getenv("TELEGRAM_TOKEN", "TU_TOKEN_DE_BOTFATHER_AQUI")
+# Render genera automáticamente la variable RENDER_EXTERNAL_URL con tu URL pública
+# Ejemplo: https://tu-servicio.onrender.com
+WEBHOOK_HOST = os.getenv("RENDER_EXTERNAL_URL")
+WEBHOOK_PATH = f"/webhook/{TOKEN}"
+WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
+
 bot = telebot.TeleBot(TOKEN)
+app = FastAPI()
 
-# 2. Lista de espejos oficiales de Anna's Archive (rota si alguno falla o está bloqueado)
+# 2. Lista de espejos oficiales de Anna's Archive
 DOMINIOS_ANNAS = [
     "https://annas-archive.gl",
     "https://annas-archive.pk",
@@ -31,7 +37,7 @@ cache_busquedas = {}
 
 
 def log(mensaje):
-    """Imprime en la consola de Railway instantáneamente sin buffering."""
+    """Imprime en la consola instantáneamente sin buffering."""
     print(mensaje, flush=True)
 
 
@@ -39,7 +45,6 @@ def buscar_annas_archive(query, max_resultados=48):
     """Busca en Anna's Archive probando espejos y saltando Cloudflare con cloudscraper."""
     query_param = urllib.parse.quote(query)
 
-    # Creamos el scraper simulando un navegador Chrome real en Windows
     scraper = cloudscraper.create_scraper(
         browser={"browser": "chrome", "platform": "windows", "mobile": False}
     )
@@ -49,7 +54,6 @@ def buscar_annas_archive(query, max_resultados=48):
         log(f"🔎 Probando búsqueda en espejo: {base_url} ...")
 
         try:
-            # timeout corto por espejo para no hacer esperar al usuario si uno está caído
             response = scraper.get(url_busqueda, timeout=10)
 
             if response.status_code == 200:
@@ -70,7 +74,7 @@ def buscar_annas_archive(query, max_resultados=48):
 
         except Exception as e:
             log(f"❌ Falló el espejo {base_url}: {e}")
-            continue  # Pasa automáticamente al siguiente dominio de la lista
+            continue
 
     log("❌ Todos los espejos de Anna's Archive fallaron o no arrojaron resultados.")
     return None
@@ -84,9 +88,7 @@ def generar_texto_pagina(query, enlaces, pagina_actual):
     enlaces_pagina = enlaces[inicio:fin]
 
     texto = f"📖 **Resultados para:** _{query}_\n\n"
-    texto += (
-        f"📄 **Página {pagina_actual + 1} de {total_paginas}**\n\n"
-    )
+    texto += f"📄 **Página {pagina_actual + 1} de {total_paginas}**\n\n"
 
     for i, link in enumerate(enlaces_pagina, start=inicio + 1):
         texto += f"**Opción {i}:**\n🔗 {link}\n\n"
@@ -102,14 +104,12 @@ def generar_teclado_paginacion(search_id, pagina_actual, total_paginas):
 
     markup = types.InlineKeyboardMarkup()
 
-    # --- FILA 1 (ARRIBA): Botón ancho con el número de página ---
     boton_pagina = types.InlineKeyboardButton(
         text=f"📄 {pagina_actual + 1} / {total_paginas}",
         url="https://portfoliosantimy.onrender.com",
     )
     markup.row(boton_pagina)
 
-    # --- FILA 2 (ABAJO): Botón Anterior y/o Siguiente ---
     botones_nav = []
 
     if pagina_actual > 0:
@@ -157,7 +157,6 @@ def comando_libro(message):
         message, "🔍 *Buscando en Anna's Archive...*", parse_mode="Markdown"
     )
 
-    # Envolvemos todo en try...except para que NUNCA se quede colgado en "Buscando..."
     try:
         enlaces = buscar_annas_archive(query, max_resultados=48)
 
@@ -251,38 +250,39 @@ def boton_decorativo(call):
     bot.answer_callback_query(call.id)
 
 
-class DummyHandler(BaseHTTPRequestHandler):
+# --- RUTAS DE FASTAPI Y WEBHOOK ---
 
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/plain; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(
-            b"Bot de Telegram en linea y funcionando perfectamente."
-        )
-
-    def log_message(self, format, *args):
-        pass  # Silencia los logs web para no llenar la consola de ruido
+@app.get("/")
+@app.head("/")
+def health_check():
+    """Ruta para los Health Checks de Render."""
+    return {"status": "ok", "bot": "online"}
 
 
-def iniciar_servidor_web():
-    # Render asigna el puerto en la variable de entorno PORT (por defecto 10000 u 8080)
-    puerto = int(os.environ.get("PORT", 10000))
-    servidor = HTTPServer(("0.0.0.0", puerto), DummyHandler)
-    log(
-        f"🌐 Servidor HTTP fantasma escuchando en el puerto {puerto} para"
-        " Render..."
-    )
-    servidor.serve_forever()
+@app.post(WEBHOOK_PATH)
+async def recibir_webhook(request: Request):
+    """Telegram enviará cada actualización (mensaje/botón) a este endpoint."""
+    if request.headers.get("content-type") == "application/json":
+        json_data = await request.json()
+        update = telebot.types.Update.de_json(json_data)
+        bot.process_new_updates([update])
+        return Response(status_code=200)
+    return Response(status_code=403)
 
 
-# -----------------------------------------
+@app.on_event("startup")
+def setup_webhook():
+    """Al iniciar FastAPI, registramos automáticamente la URL en Telegram."""
+    if WEBHOOK_HOST:
+        log(f"🔗 Registrando Webhook en Telegram: {WEBHOOK_URL}")
+        bot.remove_webhook()
+        bot.set_webhook(url=WEBHOOK_URL)
+        log("✅ Webhook registrado correctamente.")
+    else:
+        log("⚠️ Advertencia: RENDER_EXTERNAL_URL no está definida. Registra la URL manualmente.")
+
 
 if __name__ == "__main__":
-    # 1. Arrancamos el mini servidor web en un hilo secundario (en segundo plano)
-    hilo_web = threading.Thread(target=iniciar_servidor_web, daemon=True)
-    hilo_web.start()
-
-    # 2. Arrancamos el bot de Telegram de forma normal
-    log("🤖 Bot iniciado y escuchando comandos...")
-    bot.infinity_polling(interval=1, timeout=20)
+    puerto = int(os.environ.get("PORT", 10000))
+    log(f"🚀 Iniciando Uvicorn en el puerto {puerto}...")
+    uvicorn.run("main:app", host="0.0.0.0", port=puerto, reload=False)
