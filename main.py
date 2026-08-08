@@ -7,6 +7,9 @@ import uuid
 import cloudscraper
 import telebot
 from telebot import types
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import threading
+
 
 # 1. Configuración del Token
 TOKEN = os.getenv("TELEGRAM_TOKEN", "TU_TOKEN_DE_BOTFATHER_AQUI")
@@ -248,6 +251,38 @@ def boton_decorativo(call):
     bot.answer_callback_query(call.id)
 
 
+class DummyHandler(BaseHTTPRequestHandler):
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(
+            b"Bot de Telegram en linea y funcionando perfectamente."
+        )
+
+    def log_message(self, format, *args):
+        pass  # Silencia los logs web para no llenar la consola de ruido
+
+
+def iniciar_servidor_web():
+    # Render asigna el puerto en la variable de entorno PORT (por defecto 10000 u 8080)
+    puerto = int(os.environ.get("PORT", 10000))
+    servidor = HTTPServer(("0.0.0.0", puerto), DummyHandler)
+    log(
+        f"🌐 Servidor HTTP fantasma escuchando en el puerto {puerto} para"
+        " Render..."
+    )
+    servidor.serve_forever()
+
+
+# -----------------------------------------
+
 if __name__ == "__main__":
-    log("🤖 Bot iniciado y escuchando comandos (con espejos y cloudscraper)...")
+    # 1. Arrancamos el mini servidor web en un hilo secundario (en segundo plano)
+    hilo_web = threading.Thread(target=iniciar_servidor_web, daemon=True)
+    hilo_web.start()
+
+    # 2. Arrancamos el bot de Telegram de forma normal
+    log("🤖 Bot iniciado y escuchando comandos...")
     bot.infinity_polling(interval=1, timeout=20)
