@@ -4,7 +4,7 @@ import re
 import sys
 import urllib.parse
 import uuid
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 import telebot
 from telebot import types
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -41,9 +41,10 @@ def buscar_annas_archive(query, max_resultados=48):
     enlaces_encontrados = []
 
     try:
+        # Asegúrate de mantener la importación arriba: from duckduckgo_search import DDGS
         with DDGS() as ddgs:
-            # Usamos un dork de búsqueda para buscar solo dentro de Anna's Archive
-            dork_query = f'site:annas-archive.org {query}'
+            # TRUCO NINJA: 'inurl:md5' fuerza a DuckDuckGo a mostrar solo enlaces directos a libros
+            dork_query = f'{query} site:annas-archive.org inurl:md5'
             
             # Obtenemos los resultados de texto de DuckDuckGo
             resultados = ddgs.text(dork_query, max_results=max_resultados)
@@ -54,6 +55,9 @@ def buscar_annas_archive(query, max_resultados=48):
 
             for r in resultados:
                 url = r.get("href", "")
+                
+                # Esta línea nos ayudará a espiar qué links exactos nos da DuckDuckGo en los logs
+                log(f"   [DDG Link Encontrado] -> {url}") 
                 
                 # Buscamos el patrón del hash MD5 en la URL extraída
                 match = re.search(r"/md5/([a-fA-F0-9]{32})", url, re.IGNORECASE)
@@ -67,10 +71,10 @@ def buscar_annas_archive(query, max_resultados=48):
                         enlaces_encontrados.append(enlace_final)
 
         if enlaces_encontrados:
-            log(f"✅ ¡Éxito! Se encontraron {len(enlaces_encontrados)} resultados.")
+            log(f"✅ ¡Éxito! Se encontraron {len(enlaces_encontrados)} resultados válidos.")
             return enlaces_encontrados
         else:
-            log("❌ Se encontraron páginas, pero no se detectaron enlaces MD5 válidos.")
+            log("❌ DuckDuckGo devolvió páginas, pero ninguna tenía el formato MD5 de un libro.")
             return None
 
     except Exception as e:
