@@ -4,7 +4,7 @@ import re
 import sys
 import urllib.parse
 import uuid
-from curl_cffi import requests as curl_requests
+from duckduckgo_search import DDGS
 import telebot
 from telebot import types
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -36,43 +36,46 @@ def log(mensaje):
 
 
 def buscar_annas_archive(query, max_resultados=48):
-    """Busca en Anna's Archive probando espejos y saltando Cloudflare con curl_cffi."""
-    query_param = urllib.parse.quote(query)
+    """Busca en Anna's Archive indirectamente usando DuckDuckGo para saltar Cloudflare."""
+    log(f"🔎 Buscando '{query}' vía DuckDuckGo (Bypassing Cloudflare)...")
+    enlaces_encontrados = []
 
-    for base_url in DOMINIOS_ANNAS:
-        url_busqueda = f"{base_url}/search?q={query_param}"
-        log(f"🔎 Probando búsqueda en espejo: {base_url} ...")
+    try:
+        with DDGS() as ddgs:
+            # Usamos un dork de búsqueda para buscar solo dentro de Anna's Archive
+            dork_query = f'site:annas-archive.org {query}'
+            
+            # Obtenemos los resultados de texto de DuckDuckGo
+            resultados = ddgs.text(dork_query, max_results=max_resultados)
 
-        try:
-            # Usamos curl_cffi con impersonate="chrome" para emular un navegador real a la perfección
-            response = curl_requests.get(
-                url_busqueda, 
-                impersonate="chrome", 
-                timeout=15
-            )
+            if not resultados:
+                log("⚠️ DuckDuckGo no encontró resultados para esta búsqueda.")
+                return None
 
-            if response.status_code == 200:
-                md5_matches = re.findall(r"/md5/([a-fA-F0-9]{32})", response.text)
-                md5_unicos = list(dict.fromkeys(md5_matches))
+            for r in resultados:
+                url = r.get("href", "")
+                
+                # Buscamos el patrón del hash MD5 en la URL extraída
+                match = re.search(r"/md5/([a-fA-F0-9]{32})", url, re.IGNORECASE)
+                if match:
+                    md5_hash = match.group(1).lower()
+                    
+                    # Reconstruimos el enlace usando tu espejo principal activo (ej: .gl)
+                    enlace_final = f"{DOMINIOS_ANNAS[0]}/md5/{md5_hash}"
+                    
+                    if enlace_final not in enlaces_encontrados:
+                        enlaces_encontrados.append(enlace_final)
 
-                if md5_unicos:
-                    log(f"✅ ¡Éxito en {base_url}! Se encontraron {len(md5_unicos)} resultados.")
-                    enlaces = [
-                        f"{base_url}/md5/{md5}"
-                        for md5 in md5_unicos[:max_resultados]
-                    ]
-                    return enlaces
-                else:
-                    log(f"⚠️ El espejo {base_url} respondió, pero no encontró libros.")
-            else:
-                log(f"⚠️ El espejo {base_url} devolvió código HTTP {response.status_code}.")
+        if enlaces_encontrados:
+            log(f"✅ ¡Éxito! Se encontraron {len(enlaces_encontrados)} resultados.")
+            return enlaces_encontrados
+        else:
+            log("❌ Se encontraron páginas, pero no se detectaron enlaces MD5 válidos.")
+            return None
 
-        except Exception as e:
-            log(f"❌ Falló el espejo {base_url}: {e}")
-            continue
-
-    log("❌ Todos los espejos de Anna's Archive fallaron o no arrojaron resultados.")
-    return None
+    except Exception as e:
+        log(f"❌ Falló la búsqueda con DuckDuckGo: {e}")
+        return None
 
 
 def generar_texto_pagina(query, enlaces, pagina_actual):
