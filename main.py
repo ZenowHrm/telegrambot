@@ -252,13 +252,20 @@ def boton_decorativo(call):
 
 class DummyHandler(BaseHTTPRequestHandler):
 
-    def do_GET(self):
+    def _responder_ok(self):
         self.send_response(200)
         self.send_header("Content-type", "text/plain; charset=utf-8")
         self.end_headers()
+
+    def do_GET(self):
+        self._responder_ok()
         self.wfile.write(
             b"Bot de Telegram en linea y funcionando perfectamente."
         )
+        
+    def do_HEAD(self):
+        # Vital para que Render marque el servicio como "Live" (Verde)
+        self._responder_ok()
 
     def log_message(self, format, *args):
         pass  # Silencia los logs web para no llenar la consola de ruido
@@ -269,8 +276,7 @@ def iniciar_servidor_web():
     puerto = int(os.environ.get("PORT", 10000))
     servidor = HTTPServer(("0.0.0.0", puerto), DummyHandler)
     log(
-        f"🌐 Servidor HTTP fantasma escuchando en el puerto {puerto} para"
-        " Render..."
+        f"🌐 Servidor HTTP fantasma escuchando en el puerto {puerto} para Render..."
     )
     servidor.serve_forever()
 
@@ -282,6 +288,10 @@ if __name__ == "__main__":
     hilo_web = threading.Thread(target=iniciar_servidor_web, daemon=True)
     hilo_web.start()
 
-    # 2. Arrancamos el bot de Telegram de forma normal
+    # 2. VITAL PARA EVITAR EL ERROR 409 DE TELEGRAM
+    log("🧹 Borrando webhooks antiguos...")
+    bot.remove_webhook()
+
+    # 3. Arrancamos el bot de Telegram de forma normal
     log("🤖 Bot iniciado y escuchando comandos...")
     bot.infinity_polling(interval=1, timeout=20)
